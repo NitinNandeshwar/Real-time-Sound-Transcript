@@ -7,7 +7,7 @@ from faster_whisper import WhisperModel
 
 # Settings
 samplerate = 16000
-chunk_duration = 1.5   # ✅ reduced from 2 seconds for faster response
+chunk_duration = 1   # ✅ reduced from 2 seconds for faster response
 channels = 1
 
 frames_per_chunk = int(samplerate * chunk_duration)
