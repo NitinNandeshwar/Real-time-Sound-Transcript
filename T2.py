@@ -3,8 +3,7 @@ import numpy as np
 import queue
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox
-from datetime import datetime
+from tkinter import messagebox
 from faster_whisper import WhisperModel
 
 
@@ -30,23 +29,25 @@ model = WhisperModel(
 
 
 # ---------------- Audio Functions ----------------
-def find_jabra_speaker():
+def find_wh1000xm5_speaker():
     speakers = sc.all_speakers()
 
     print("Available speakers:")
     for i, speaker in enumerate(speakers):
         print(i, speaker.name)
 
-    for speaker in speakers:
-        if "Jabra Engage 75" in speaker.name:
-            return speaker
+    # Use device 0: Headphones (WH-1000XM5)
+    speaker = speakers[0]
 
-    raise RuntimeError("Jabra Engage 75 speaker not found")
+    if "WH-1000XM5" in speaker.name:
+        return speaker
+
+    raise RuntimeError("Device 0 is not WH-1000XM5. Found: " + speaker.name)
 
 
 def recorder():
     try:
-        speaker = find_jabra_speaker()
+        speaker = find_wh1000xm5_speaker()
         text_queue.put(f"Using speaker loopback: {speaker.name}\n")
 
         with sc.get_microphone(
@@ -54,7 +55,7 @@ def recorder():
             include_loopback=True
         ).recorder(samplerate=samplerate, channels=channels) as mic:
 
-            text_queue.put("Listening to Jabra system audio...\n\n")
+            text_queue.put("Listening to WH-1000XM5 system audio...\n\n")
 
             while not stop_event.is_set():
                 audio_data = mic.record(numframes=frames_per_chunk)
@@ -163,12 +164,12 @@ def on_close():
 
 # ---------------- GUI Layout ----------------
 root = tk.Tk()
-root.title("Jabra Real-Time Transcription App")
+root.title("WH-1000XM5 Real-Time Transcription App")
 root.geometry("800x500")
 
 title_label = tk.Label(
     root,
-    text="Jabra Real-Time Speech Transcription",
+    text="WH-1000XM5 Real-Time Speech Transcription",
     font=("Arial", 16, "bold")
 )
 title_label.pack(pady=10)
