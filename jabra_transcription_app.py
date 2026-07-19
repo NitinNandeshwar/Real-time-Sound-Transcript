@@ -3,7 +3,6 @@ import numpy as np
 import queue
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox
 from datetime import datetime
 from faster_whisper import WhisperModel
 
@@ -124,10 +123,13 @@ def save_text():
     latest_text = text_box.get("1.0", tk.END).strip()
 
     if not latest_text:
-        messagebox.showwarning("No Data", "No transcription data to save.")
+        # CHANGED: Removed messagebox popup
+        text_box.insert(tk.END, "\n--- No transcription data to save ---\n")
+        text_box.see(tk.END)
+
         start_button.config(state=tk.NORMAL)
         save_button.config(state=tk.DISABLED)
-        status_label.config(text="Status: Stopped")
+        status_label.config(text="Status: No Data / Ready")
         return
 
     file_path = "transcript1.txt"
@@ -137,9 +139,11 @@ def save_text():
         f.write(latest_text)
         f.write("\n")
 
-    messagebox.showinfo("Saved", "Transcript appended to transcript1.txt")
+    # CHANGED: Removed this popup window
+    # messagebox.showinfo("Saved", "Transcript appended to transcript1.txt")
 
-    text_box.insert(tk.END, "\n--- Latest text appended successfully ---\n")
+    # CHANGED: Show save confirmation inside the app instead of popup
+    text_box.insert(tk.END, "\n--- Transcript appended to transcript1.txt successfully ---\n")
     text_box.see(tk.END)
 
     start_button.config(state=tk.NORMAL)

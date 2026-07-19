@@ -1,0 +1,18 @@
+Data Science interview questions - 12
+
+Designation: GenAI Data Scientist
+Organisation: EXL
+Mode : Virtual 
+Round : 1
+
+1. Introduction
+2. Explain any of your genAI project along with tech stack and architecture. -> Which framework was used for muti-agent flow and how agents were interconnected ?
+3. Explain #RAG architecture. -> How queries are answered using RAG solution?
+4. Why do we need #embeddings and how embeddings are generated for RAG based solutions?
+5. What's the purpose of storing the embeddings into #vector DBs? Based on what factors do you choose vector db suitable for your use case?
+6. What is self-attention ? -> How it is calculated?
+7. How is a #transformer different from RNN/LSTM?
+8. How do you #evaluate your projects using LLMs? -> What are ready to use options available ? ->How will you write custom evals for anything not covered under ready to use options? -> How will you track the performance of your application with each commit?
+9. Explain intuition behind any ML algorithm of your choice.
+10. What is curse of dimensionality ? -> What is #PCA ? -> Explain mathematics behind PCA.
+11. Write a program to return frequency of each character for a given text.
