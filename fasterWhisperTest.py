@@ -18,7 +18,6 @@
 # for segment in segments:
 #     print(segment.text)
 
-
 import os
 import queue
 import threading
@@ -68,48 +67,53 @@ transcription_thread = None
 # TRANSCRIPT STORAGE
 # ============================================================
 
-# Contains ONLY actual Whisper transcription.
-#
-# Example:
-# [
-#     "Hello, how are you?",
-#     "Can you explain this project?",
-#     "Sure, I worked on..."
-# ]
+# Contains only actual Whisper transcription.
 transcript_segments = []
 
 
-# Tkinter Text positions corresponding to each transcript.
+# Stores Tkinter Text widget positions
+# for every transcript segment.
 #
-# Example:
-# segment_positions[0] = ("4.0", "4.24")
-#
-# Used for highlighting the most recent text copied
-# using "Copy New Text".
+# Used for highlighting Copy New Text.
 segment_positions = []
 
 
 # Everything before this index has already been copied
-# using "Copy New Text".
+# using Copy New Text.
 copy_index = 0
 
 
-# Beginning of current listening session.
-#
-# Used so Save only saves the current listening session.
+# Starting transcript index of the current listening session.
 session_start_index = 0
 
 
+# Stores the most recent block copied through Copy New Text.
+#
+# Previous Copy copies this same block again.
+last_copied_text = ""
+
+
 # ============================================================
-# LAST / PREVIOUS COPIED TEXT
+# NORMAL COUNT-UP TIMER STATE
 # ============================================================
 
-# Stores the most recent block copied using:
+# Tkinter after() callback ID.
 #
-#     Copy New Text
+# Used so an existing timer can be cancelled
+# before restarting it.
+timer_after_id = None
+
+
+# Number of seconds elapsed since:
 #
-# "Previous Copy" copies this exact block again.
-last_copied_text = ""
+# Copy New Text
+#
+# OR
+#
+# Copy Full Transcript
+#
+# was last clicked.
+timer_elapsed_seconds = 0
 
 
 # ============================================================
@@ -117,10 +121,149 @@ last_copied_text = ""
 # ============================================================
 
 model = WhisperModel(
-    "small.en",
+    "small.en",    # "distil-small.en",
     device="cuda",
-    compute_type="int8_float16"
+    compute_type="int8_float16"   # int8_float16
 )
+
+
+# ============================================================
+# FORMAT NORMAL TIMER
+# ============================================================
+
+def format_timer(total_seconds):
+
+    total_seconds = max(
+        0,
+        int(total_seconds)
+    )
+
+
+    hours, remainder = divmod(
+        total_seconds,
+        3600
+    )
+
+
+    minutes, seconds = divmod(
+        remainder,
+        60
+    )
+
+
+    # --------------------------------------------------------
+    # LESS THAN ONE HOUR
+    #
+    # 00:00
+    # 00:01
+    # 00:59
+    # 01:00
+    # 59:59
+    # --------------------------------------------------------
+
+    if hours == 0:
+
+        return (
+            f"{minutes:02d}:"
+            f"{seconds:02d}"
+        )
+
+
+    # --------------------------------------------------------
+    # ONE HOUR OR MORE
+    #
+    # 01:00:00
+    # 01:20:25
+    # --------------------------------------------------------
+
+    return (
+        f"{hours:02d}:"
+        f"{minutes:02d}:"
+        f"{seconds:02d}"
+    )
+
+
+# ============================================================
+# UPDATE NORMAL TIMER
+# ============================================================
+
+def update_timer():
+
+    global timer_after_id
+    global timer_elapsed_seconds
+
+
+    # --------------------------------------------------------
+    # DISPLAY CURRENT ELAPSED TIME
+    # --------------------------------------------------------
+
+    timer_label.config(
+        text=(
+            "Copy Timer: "
+            f"{format_timer(timer_elapsed_seconds)}"
+        )
+    )
+
+
+    # --------------------------------------------------------
+    # ADD ONE SECOND
+    # --------------------------------------------------------
+
+    timer_elapsed_seconds += 1
+
+
+    # --------------------------------------------------------
+    # UPDATE AGAIN AFTER ONE SECOND
+    # --------------------------------------------------------
+
+    timer_after_id = root.after(
+        1000,
+        update_timer
+    )
+
+
+# ============================================================
+# RESET + START NORMAL TIMER
+# ============================================================
+
+def reset_copy_timer():
+
+    global timer_after_id
+    global timer_elapsed_seconds
+
+
+    # --------------------------------------------------------
+    # CANCEL EXISTING TIMER
+    # --------------------------------------------------------
+
+    if timer_after_id is not None:
+
+        try:
+
+            root.after_cancel(
+                timer_after_id
+            )
+
+        except tk.TclError:
+
+            pass
+
+
+        timer_after_id = None
+
+
+    # --------------------------------------------------------
+    # RESET TO ZERO
+    # --------------------------------------------------------
+
+    timer_elapsed_seconds = 0
+
+
+    # --------------------------------------------------------
+    # START COUNTING
+    # --------------------------------------------------------
+
+    update_timer()
 
 
 # ============================================================
@@ -131,19 +274,33 @@ def find_jabra_speaker():
 
     speakers = sc.all_speakers()
 
-    print("\nAvailable speakers:")
 
-    for i, speaker in enumerate(speakers):
-        print(f"{i}: {speaker.name}")
+    print(
+        "\nAvailable speakers:"
+    )
+
+
+    for i, speaker in enumerate(
+        speakers
+    ):
+
+        print(
+            f"{i}: {speaker.name}"
+        )
 
 
     for speaker in speakers:
 
-        if "Jabra Engage 75" in speaker.name:
+        if (
+            "Jabra Engage 75"
+            in speaker.name
+        ):
 
             print(
-                f"\nSelected speaker: {speaker.name}"
+                f"\nSelected speaker: "
+                f"{speaker.name}"
             )
+
 
             return speaker
 
@@ -164,17 +321,29 @@ def recorder():
         speaker = find_jabra_speaker()
 
 
+        # ----------------------------------------------------
+        # SHOW SELECTED SPEAKER
+        # ----------------------------------------------------
+
         text_queue.put(
             (
                 "system",
-                f"Using speaker loopback: "
-                f"{speaker.name}\n"
+                (
+                    "Using speaker loopback: "
+                    f"{speaker.name}\n"
+                )
             )
         )
 
 
+        # ----------------------------------------------------
+        # OPEN LOOPBACK RECORDING
+        # ----------------------------------------------------
+
         with sc.get_microphone(
-            id=str(speaker.name),
+            id=str(
+                speaker.name
+            ),
             include_loopback=True
         ).recorder(
             samplerate=samplerate,
@@ -185,17 +354,24 @@ def recorder():
             text_queue.put(
                 (
                     "system",
-                    "Listening to Jabra "
-                    "system audio...\n\n"
+                    (
+                        "Listening to Jabra "
+                        "system audio...\n\n"
+                    )
                 )
             )
 
+
+            # ------------------------------------------------
+            # RECORD AUDIO CONTINUOUSLY
+            # ------------------------------------------------
 
             while not stop_event.is_set():
 
                 audio_data = mic.record(
                     numframes=frames_per_chunk
                 )
+
 
                 audio_queue.put(
                     audio_data.copy()
@@ -207,15 +383,17 @@ def recorder():
         text_queue.put(
             (
                 "system",
-                f"\nRecorder error: {e}\n"
+                (
+                    "\nRecorder error: "
+                    f"{e}\n"
+                )
             )
         )
 
 
     finally:
 
-        # Tells transcription thread that the recorder
-        # has completely finished.
+        # Recorder is completely finished.
         recording_done_event.set()
 
 
@@ -227,17 +405,26 @@ def transcriber():
 
     while True:
 
-        # Stop only when:
+
+        # ----------------------------------------------------
+        # STOP ONLY WHEN:
         #
         # 1. Recorder has finished
         # 2. Audio queue is empty
+        # ----------------------------------------------------
 
         if (
             recording_done_event.is_set()
-            and audio_queue.empty()
+            and
+            audio_queue.empty()
         ):
+
             break
 
+
+        # ----------------------------------------------------
+        # GET AUDIO
+        # ----------------------------------------------------
 
         try:
 
@@ -245,12 +432,16 @@ def transcriber():
                 timeout=0.5
             )
 
+
         except queue.Empty:
 
             continue
 
 
-        # Convert stereo/multichannel audio to mono.
+        # ----------------------------------------------------
+        # CONVERT TO MONO
+        # ----------------------------------------------------
+
         if audio_data.ndim > 1:
 
             audio_data = np.mean(
@@ -263,6 +454,10 @@ def transcriber():
             np.float32
         )
 
+
+        # ----------------------------------------------------
+        # WHISPER
+        # ----------------------------------------------------
 
         try:
 
@@ -295,14 +490,16 @@ def transcriber():
             text_queue.put(
                 (
                     "system",
-                    f"\nTranscription error: "
-                    f"{e}\n"
+                    (
+                        "\nTranscription error: "
+                        f"{e}\n"
+                    )
                 )
             )
 
 
 # ============================================================
-# CLEAR AUDIO QUEUE
+# CLEAR OLD AUDIO QUEUE
 # ============================================================
 
 def clear_audio_queue():
@@ -312,6 +509,7 @@ def clear_audio_queue():
         try:
 
             audio_queue.get_nowait()
+
 
         except queue.Empty:
 
@@ -324,15 +522,21 @@ def clear_audio_queue():
 
 def refresh_copy_buttons():
 
+
     # --------------------------------------------------------
     # COPY NEW TEXT
     # --------------------------------------------------------
 
-    if copy_index < len(transcript_segments):
+    if (
+        copy_index
+        <
+        len(transcript_segments)
+    ):
 
         copy_button.config(
             state=tk.NORMAL
         )
+
 
     else:
 
@@ -351,6 +555,7 @@ def refresh_copy_buttons():
             state=tk.NORMAL
         )
 
+
     else:
 
         previous_copy_button.config(
@@ -367,6 +572,7 @@ def refresh_copy_buttons():
         full_copy_button.config(
             state=tk.NORMAL
         )
+
 
     else:
 
@@ -389,27 +595,40 @@ def process_text_queue():
                 text_queue.get_nowait()
             )
 
+
         except queue.Empty:
 
             break
 
 
         # ----------------------------------------------------
-        # ACTUAL WHISPER TRANSCRIPTION
+        # WHISPER TRANSCRIPTION
         # ----------------------------------------------------
 
         if message_type == "transcript":
+
+
+            # ------------------------------------------------
+            # STORE TRANSCRIPT
+            # ------------------------------------------------
 
             transcript_segments.append(
                 text
             )
 
 
-            # Position before inserting transcript.
+            # ------------------------------------------------
+            # TEXT POSITION BEFORE INSERTING
+            # ------------------------------------------------
+
             start_position = text_box.index(
                 "end-1c"
             )
 
+
+            # ------------------------------------------------
+            # INSERT TRANSCRIPT
+            # ------------------------------------------------
 
             text_box.insert(
                 tk.END,
@@ -417,11 +636,18 @@ def process_text_queue():
             )
 
 
-            # Position immediately after transcript.
+            # ------------------------------------------------
+            # TEXT POSITION AFTER INSERTING
+            # ------------------------------------------------
+
             end_position = text_box.index(
                 "end-1c"
             )
 
+
+            # ------------------------------------------------
+            # STORE POSITION
+            # ------------------------------------------------
 
             segment_positions.append(
                 (
@@ -446,6 +672,10 @@ def process_text_queue():
             )
 
 
+        # ----------------------------------------------------
+        # SCROLL TO BOTTOM
+        # ----------------------------------------------------
+
         text_box.see(
             tk.END
         )
@@ -458,6 +688,7 @@ def process_text_queue():
 def update_text_box():
 
     process_text_queue()
+
 
     root.after(
         200,
@@ -472,27 +703,45 @@ def update_text_box():
 def start_listening():
 
     global listening
+
     global recording_thread
     global transcription_thread
+
     global session_start_index
     global copy_index
 
 
+    # --------------------------------------------------------
+    # ALREADY LISTENING
+    # --------------------------------------------------------
+
     if listening:
+
         return
 
 
-    # Process anything still waiting in GUI queue.
+    # --------------------------------------------------------
+    # PROCESS ANY WAITING TEXT
+    # --------------------------------------------------------
+
     process_text_queue()
 
 
-    # Remove old audio from previous session.
+    # --------------------------------------------------------
+    # CLEAR OLD AUDIO
+    # --------------------------------------------------------
+
     clear_audio_queue()
 
+
+    # --------------------------------------------------------
+    # RESET EVENTS
+    # --------------------------------------------------------
 
     stop_event.clear()
 
     recording_done_event.clear()
+
 
     listening = True
 
@@ -506,11 +755,12 @@ def start_listening():
     )
 
 
-    # Copy New Text should start from this new session.
+    # Copy New Text starts from this session.
     #
-    # Old transcript remains available through:
+    # Older transcripts still remain available through:
     #
-    #     Copy Full Transcript
+    # Copy Full Transcript.
+
     copy_index = session_start_index
 
 
@@ -536,11 +786,6 @@ def start_listening():
     refresh_copy_buttons()
 
 
-    status_label.config(
-        text="Status: Listening..."
-    )
-
-
     # ========================================================
     # SESSION HEADER
     # ========================================================
@@ -553,7 +798,7 @@ def start_listening():
     text_box.insert(
         tk.END,
         (
-            f"\n--- New Listening Session "
+            "\n--- New Listening Session "
             f"Started {current_time} ---\n"
         )
     )
@@ -584,13 +829,17 @@ def start_listening():
     )
 
 
+    # ========================================================
+    # START THREADS
+    # ========================================================
+
     recording_thread.start()
 
     transcription_thread.start()
 
 
 # ============================================================
-# COPY NEW / UNCOPIED TEXT
+# COPY NEW TEXT
 # ============================================================
 
 def copy_new_text():
@@ -599,7 +848,26 @@ def copy_new_text():
     global last_copied_text
 
 
-    # Process any latest Whisper text waiting for GUI.
+    # ========================================================
+    # RESET NORMAL TIMER
+    # ========================================================
+
+    # Every time Copy New Text is clicked:
+    #
+    # 00:00
+    # 00:01
+    # 00:02
+    # ...
+    #
+    # Timer restarts from zero.
+
+    reset_copy_timer()
+
+
+    # ========================================================
+    # PROCESS LATEST WHISPER OUTPUT
+    # ========================================================
+
     process_text_queue()
 
 
@@ -609,17 +877,10 @@ def copy_new_text():
 
 
     # ========================================================
-    # NOTHING NEW
+    # NO NEW TEXT
     # ========================================================
 
     if copy_index >= current_total:
-
-        status_label.config(
-            text=(
-                "Status: No new transcription "
-                "to copy"
-            )
-        )
 
         refresh_copy_buttons()
 
@@ -627,17 +888,23 @@ def copy_new_text():
 
 
     # ========================================================
-    # DETERMINE NEW TEXT RANGE
+    # NEW TEXT RANGE
     # ========================================================
 
     start_segment_index = copy_index
 
-    end_segment_index = current_total - 1
+
+    end_segment_index = (
+        current_total - 1
+    )
 
 
-    uncopied_segments = transcript_segments[
-        start_segment_index:current_total
-    ]
+    uncopied_segments = (
+        transcript_segments[
+            start_segment_index:
+            current_total
+        ]
+    )
 
 
     # ========================================================
@@ -651,46 +918,44 @@ def copy_new_text():
 
     if not text_to_copy:
 
-        status_label.config(
-            text="Status: Nothing to copy"
-        )
-
         return
 
 
     # ========================================================
-    # COPY TO CLIPBOARD
+    # COPY TO WINDOWS CLIPBOARD
     # ========================================================
 
     try:
 
         root.clipboard_clear()
 
+
         root.clipboard_append(
             text_to_copy
         )
+
 
         root.update_idletasks()
 
 
     except tk.TclError as e:
 
-        status_label.config(
-            text=f"Clipboard error: {e}"
+        print(
+            f"Clipboard error: {e}"
         )
 
         return
 
 
     # ========================================================
-    # STORE THIS AS PREVIOUS COPY
+    # SAVE AS PREVIOUS COPY
     # ========================================================
 
     last_copied_text = text_to_copy
 
 
     # ========================================================
-    # REMOVE OLD HIGHLIGHT
+    # REMOVE OLD GREEN HIGHLIGHT
     # ========================================================
 
     text_box.tag_remove(
@@ -701,23 +966,32 @@ def copy_new_text():
 
 
     # ========================================================
-    # HIGHLIGHT ONLY NEWLY COPIED TEXT
+    # HIGHLIGHT ONLY CURRENT COPY
     # ========================================================
 
     if (
-        start_segment_index < len(segment_positions)
+        start_segment_index
+        <
+        len(segment_positions)
         and
-        end_segment_index < len(segment_positions)
+        end_segment_index
+        <
+        len(segment_positions)
     ):
 
-        start_position = segment_positions[
-            start_segment_index
-        ][0]
+
+        start_position = (
+            segment_positions[
+                start_segment_index
+            ][0]
+        )
 
 
-        end_position = segment_positions[
-            end_segment_index
-        ][1]
+        end_position = (
+            segment_positions[
+                end_segment_index
+            ][1]
+        )
 
 
         text_box.tag_add(
@@ -736,94 +1010,85 @@ def copy_new_text():
     # UPDATE COPY INDEX
     # ========================================================
 
-    copied_count = (
-        current_total - copy_index
-    )
-
-
     copy_index = current_total
-
-
-    status_label.config(
-        text=(
-            f"Status: Copied {copied_count} "
-            f"new transcript segment(s)"
-        )
-    )
 
 
     refresh_copy_buttons()
 
 
 # ============================================================
-# COPY PREVIOUS TEXT
+# PREVIOUS COPY
 # ============================================================
 
 def copy_previous_text():
 
-    # ========================================================
-    # NOTHING COPIED BEFORE
-    # ========================================================
+
+    # --------------------------------------------------------
+    # NOTHING COPIED YET
+    # --------------------------------------------------------
 
     if not last_copied_text:
-
-        status_label.config(
-            text="Status: No previous copied text"
-        )
 
         return
 
 
-    # ========================================================
-    # COPY THE SAME PREVIOUS BLOCK AGAIN
-    # ========================================================
+    # --------------------------------------------------------
+    # COPY SAME BLOCK AGAIN
+    # --------------------------------------------------------
 
     try:
 
         root.clipboard_clear()
 
+
         root.clipboard_append(
             last_copied_text
         )
+
 
         root.update_idletasks()
 
 
     except tk.TclError as e:
 
-        status_label.config(
-            text=f"Clipboard error: {e}"
+        print(
+            f"Clipboard error: {e}"
         )
-
-        return
 
 
     # IMPORTANT:
     #
-    # Do NOT change copy_index.
+    # Previous Copy does NOT:
     #
-    # Do NOT change last_copied_text.
-    #
-    # Do NOT change recent highlight.
-    #
-    # This simply copies the previous Copy New Text block again.
-
-    status_label.config(
-        text=(
-            "Status: Previous copied "
-            "text copied again"
-        )
-    )
+    # - reset timer
+    # - change copy_index
+    # - change green highlight
+    # - overwrite last_copied_text
 
 
 # ============================================================
 # COPY FULL TRANSCRIPT
-# FROM VERY FIRST TRANSCRIPT TO LATEST TRANSCRIPT
 # ============================================================
 
 def copy_full_transcript():
 
-    # Process latest Whisper text waiting in GUI queue.
+
+    # ========================================================
+    # RESET NORMAL TIMER
+    # ========================================================
+
+    # Every time Copy Full Transcript is clicked,
+    # timer starts again from:
+    #
+    # 00:00
+
+    reset_copy_timer()
+
+
+    # ========================================================
+    # PROCESS LATEST WHISPER OUTPUT
+    # ========================================================
+
     process_text_queue()
 
 
@@ -833,26 +1098,22 @@ def copy_full_transcript():
 
     if not transcript_segments:
 
-        status_label.config(
-            text="Status: No transcription to copy"
-        )
-
         refresh_copy_buttons()
 
         return
 
 
     # ========================================================
-    # COPY EVERYTHING
+    # CREATE FULL TRANSCRIPT
     # ========================================================
 
-    # This includes:
+    # Everything from:
     #
     # First Whisper transcript
-    #          ↓
-    # Every transcript after that
-    #          ↓
-    # Latest transcript available now
+    #
+    #             ↓
+    #
+    # Latest Whisper transcript
 
     full_transcript = " ".join(
         transcript_segments
@@ -861,58 +1122,42 @@ def copy_full_transcript():
 
     if not full_transcript:
 
-        status_label.config(
-            text="Status: Nothing to copy"
-        )
-
         return
 
 
     # ========================================================
-    # COPY TO CLIPBOARD
+    # COPY TO WINDOWS CLIPBOARD
     # ========================================================
 
     try:
 
         root.clipboard_clear()
 
+
         root.clipboard_append(
             full_transcript
         )
+
 
         root.update_idletasks()
 
 
     except tk.TclError as e:
 
-        status_label.config(
-            text=f"Clipboard error: {e}"
+        print(
+            f"Clipboard error: {e}"
         )
 
         return
 
 
-    # ========================================================
-    # IMPORTANT
-    # ========================================================
-
-    # Copy Full Transcript is completely independent.
+    # IMPORTANT:
     #
-    # It does NOT:
+    # Copy Full Transcript does NOT:
     #
     # - change copy_index
-    # - change last_copied_text
-    # - change recent_copy highlight
-    #
-    # Therefore Copy New Text continues exactly where
-    # it previously stopped.
-
-    status_label.config(
-        text=(
-            f"Status: Copied full transcript "
-            f"({len(transcript_segments)} segment(s))"
-        )
-    )
+    # - overwrite last_copied_text
+    # - change Copy New Text green highlight
 
 
 # ============================================================
@@ -925,16 +1170,22 @@ def save_text():
 
 
     if not listening:
+
         return
 
 
+    # --------------------------------------------------------
+    # STOP RECORDING
+    # --------------------------------------------------------
+
     stop_event.set()
+
 
     listening = False
 
 
     # ========================================================
-    # BUTTON STATES WHILE FINISHING WHISPER
+    # BUTTON STATES
     # ========================================================
 
     start_button.config(
@@ -952,13 +1203,9 @@ def save_text():
     )
 
 
-    status_label.config(
-        text=(
-            "Status: Finishing final "
-            "transcription..."
-        )
-    )
-
+    # ========================================================
+    # WAIT FOR FINAL TRANSCRIPTION
+    # ========================================================
 
     threading.Thread(
         target=wait_for_threads_and_save,
@@ -972,7 +1219,11 @@ def save_text():
 
 def wait_for_threads_and_save():
 
-    # Wait for recorder to finish.
+
+    # --------------------------------------------------------
+    # WAIT FOR RECORDER
+    # --------------------------------------------------------
+
     if recording_thread is not None:
 
         recording_thread.join(
@@ -980,7 +1231,10 @@ def wait_for_threads_and_save():
         )
 
 
-    # Wait for queued audio to finish transcription.
+    # --------------------------------------------------------
+    # WAIT FOR WHISPER
+    # --------------------------------------------------------
+
     if transcription_thread is not None:
 
         transcription_thread.join(
@@ -988,12 +1242,17 @@ def wait_for_threads_and_save():
         )
 
 
+    # --------------------------------------------------------
+    # RETURN TO TKINTER THREAD
+    # --------------------------------------------------------
+
     try:
 
         root.after(
             0,
             finalize_save
         )
+
 
     except tk.TclError:
 
@@ -1006,12 +1265,16 @@ def wait_for_threads_and_save():
 
 def finalize_save():
 
-    # Process any final Whisper output.
+
+    # --------------------------------------------------------
+    # PROCESS FINAL WHISPER OUTPUT
+    # --------------------------------------------------------
+
     process_text_queue()
 
 
     # ========================================================
-    # CURRENT SESSION ONLY
+    # CURRENT SESSION
     # ========================================================
 
     current_session = transcript_segments[
@@ -1020,10 +1283,11 @@ def finalize_save():
 
 
     # ========================================================
-    # NO TRANSCRIPTION
+    # NO DATA
     # ========================================================
 
     if not current_session:
+
 
         text_box.insert(
             tk.END,
@@ -1052,21 +1316,23 @@ def finalize_save():
         refresh_copy_buttons()
 
 
-        status_label.config(
-            text="Status: No Data / Ready"
-        )
-
         return
+
+
+    # ========================================================
+    # SCRIPT DIRECTORY
+    # ========================================================
+
+    script_directory = os.path.dirname(
+        os.path.abspath(
+            __file__
+        )
+    )
 
 
     # ========================================================
     # TRANSCRIPTS DIRECTORY
     # ========================================================
-
-    script_directory = os.path.dirname(
-        os.path.abspath(__file__)
-    )
-
 
     transcript_directory = os.path.join(
         script_directory,
@@ -1081,7 +1347,7 @@ def finalize_save():
 
 
     # ========================================================
-    # DATE-BASED FILE NAME
+    # DATE
     # ========================================================
 
     now = datetime.now()
@@ -1092,8 +1358,13 @@ def finalize_save():
     )
 
 
+    # ========================================================
+    # FILE NAME
+    # ========================================================
+
     file_name = (
-        f"transcript_{date_string}.txt"
+        f"transcript_"
+        f"{date_string}.txt"
     )
 
 
@@ -1104,7 +1375,7 @@ def finalize_save():
 
 
     # ========================================================
-    # SESSION TIMESTAMP
+    # SESSION TIME
     # ========================================================
 
     session_time = now.strftime(
@@ -1113,7 +1384,7 @@ def finalize_save():
 
 
     # ========================================================
-    # PREPARE SESSION TRANSCRIPT
+    # COMBINE CURRENT SESSION
     # ========================================================
 
     transcript_text = " ".join(
@@ -1122,7 +1393,7 @@ def finalize_save():
 
 
     # ========================================================
-    # SAVE TRANSCRIPT
+    # SAVE
     # ========================================================
 
     try:
@@ -1150,7 +1421,8 @@ def finalize_save():
 
 
             file.write(
-                f"Session: {session_time}\n"
+                f"Session: "
+                f"{session_time}\n"
             )
 
 
@@ -1176,9 +1448,13 @@ def finalize_save():
 
     except Exception as e:
 
+
         text_box.insert(
             tk.END,
-            f"\n--- Save Error: {e} ---\n"
+            (
+                "\n--- Save Error: "
+                f"{e} ---\n"
+            )
         )
 
 
@@ -1195,10 +1471,6 @@ def finalize_save():
         refresh_copy_buttons()
 
 
-        status_label.config(
-            text="Status: Save Error"
-        )
-
         return
 
 
@@ -1209,7 +1481,7 @@ def finalize_save():
     text_box.insert(
         tk.END,
         (
-            f"\n--- Transcript saved to "
+            "\n--- Transcript saved to "
             f"{file_name} ---\n"
         )
     )
@@ -1219,6 +1491,10 @@ def finalize_save():
         tk.END
     )
 
+
+    # ========================================================
+    # BUTTON STATES
+    # ========================================================
 
     start_button.config(
         state=tk.NORMAL
@@ -1230,14 +1506,7 @@ def finalize_save():
     )
 
 
-    # Final Whisper text may have arrived after the user
-    # last clicked Copy New Text.
     refresh_copy_buttons()
-
-
-    status_label.config(
-        text=f"Status: Saved - {file_name}"
-    )
 
 
 # ============================================================
@@ -1246,9 +1515,42 @@ def finalize_save():
 
 def on_close():
 
+    global timer_after_id
+
+
+    # --------------------------------------------------------
+    # STOP AUDIO THREADS
+    # --------------------------------------------------------
+
     stop_event.set()
 
     recording_done_event.set()
+
+
+    # --------------------------------------------------------
+    # CANCEL NORMAL TIMER
+    # --------------------------------------------------------
+
+    if timer_after_id is not None:
+
+        try:
+
+            root.after_cancel(
+                timer_after_id
+            )
+
+
+        except tk.TclError:
+
+            pass
+
+
+        timer_after_id = None
+
+
+    # --------------------------------------------------------
+    # CLOSE GUI
+    # --------------------------------------------------------
 
     root.destroy()
 
@@ -1265,7 +1567,8 @@ root.title(
 )
 
 
-# Increased width to fit five buttons.
+# Wider window because there are five buttons.
+
 root.geometry(
     "1250x650"
 )
@@ -1277,7 +1580,10 @@ root.geometry(
 
 title_label = tk.Label(
     root,
-    text="Jabra Real-Time Speech Transcription",
+    text=(
+        "Jabra Real-Time "
+        "Speech Transcription"
+    ),
     font=(
         "Arial",
         18,
@@ -1287,26 +1593,53 @@ title_label = tk.Label(
 
 
 title_label.pack(
-    pady=(15, 5)
-)
-
-
-# ============================================================
-# STATUS
-# ============================================================
-
-status_label = tk.Label(
-    root,
-    text="Status: Ready",
-    font=(
-        "Arial",
-        11
+    pady=(
+        15,
+        5
     )
 )
 
 
-status_label.pack(
-    pady=(0, 5)
+# ============================================================
+# NORMAL COUNT-UP TIMER
+# ============================================================
+
+# Replaces the old Status text.
+#
+# Initial:
+#
+# Copy Timer: 00:00
+#
+# After Copy New Text / Copy Full Transcript:
+#
+# Copy Timer: 00:00
+# Copy Timer: 00:01
+# Copy Timer: 00:02
+# Copy Timer: 00:03
+# ...
+# Copy Timer: 01:00
+# Copy Timer: 01:01
+#
+# Clicking either copy button again resets it
+# immediately to 00:00.
+
+timer_label = tk.Label(
+    root,
+    text="Copy Timer: 00:00",
+    font=(
+        "Arial",
+        14,
+        # "bold"
+    ),
+    # fg="red"
+)
+
+
+timer_label.pack(
+    pady=(
+        0,
+        5
+    )
 )
 
 
@@ -1373,14 +1706,12 @@ scrollbar.config(
 # RECENT COPY HIGHLIGHT
 # ============================================================
 
-# ONLY the most recent block copied using:
+# Only the most recent Copy New Text block
+# is highlighted in green.
 #
-#     Copy New Text
+# Previous Copy does not change it.
 #
-# receives this highlight.
-#
-# Copy Full Transcript does NOT affect this highlight.
-# Previous Copy does NOT affect this highlight.
+# Copy Full Transcript does not change it.
 
 text_box.tag_configure(
     "recent_copy",
@@ -1398,12 +1729,15 @@ button_frame = tk.Frame(
 
 
 button_frame.pack(
-    pady=(5, 20)
+    pady=(
+        5,
+        20
+    )
 )
 
 
 # ============================================================
-# START LISTENING BUTTON
+# START LISTENING
 # ============================================================
 
 start_button = tk.Button(
@@ -1427,7 +1761,7 @@ start_button.grid(
 
 
 # ============================================================
-# PREVIOUS COPY BUTTON
+# PREVIOUS COPY
 # ============================================================
 
 previous_copy_button = tk.Button(
@@ -1452,7 +1786,7 @@ previous_copy_button.grid(
 
 
 # ============================================================
-# COPY NEW TEXT BUTTON
+# COPY NEW TEXT
 # ============================================================
 
 copy_button = tk.Button(
@@ -1477,7 +1811,7 @@ copy_button.grid(
 
 
 # ============================================================
-# COPY FULL TRANSCRIPT BUTTON
+# COPY FULL TRANSCRIPT
 # ============================================================
 
 full_copy_button = tk.Button(
@@ -1502,7 +1836,7 @@ full_copy_button.grid(
 
 
 # ============================================================
-# SAVE BUTTON
+# SAVE
 # ============================================================
 
 save_button = tk.Button(
@@ -1537,7 +1871,7 @@ root.protocol(
 
 
 # ============================================================
-# START GUI UPDATE LOOP
+# START GUI UPDATE
 # ============================================================
 
 update_text_box()
